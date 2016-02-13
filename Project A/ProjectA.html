@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Project A</title>
+  </head>
+
+  <body onload="main()">
+    <canvas id="webgl" width="400" height="400">
+    Please use a browser that supports "canvas"
+    </canvas>
+    <p>Welcome to the Wolrd of Bizarreness!My fellow weirdo!</p>
+    <p>Drag the seesaw on the right side and see what happens!</p>
+    <p>Move "&uarr;&darr;" to control the lower arm for the robotic arm on the left side.</p>
+    <p>Click anywhere on the right side of the arm to spin toward the right;<br>
+       Click anywhere on the left side of the arm to spin toward the left;
+    </p>
+    <p>Restart the motion by pressing the "Clear" button.</p>
+    <button type="button" onClick='clearmotion()'>Clear</button>
+    <script src="../lib/webgl-utils.js"></script>
+    <script src="../lib/webgl-debug.js"></script>
+    <script src="../lib/cuon-utils.js"></script>
+    <script src="../lib/cuon-matrix-mod.js"></script>
+    <script src="ProjectA.js"></script>
+  </body>
+</html>
