@@ -4,9 +4,11 @@ var VSHADER_SOURCE =
   'attribute vec4 a_Position;\n' +
   'attribute vec4 a_Color;\n' +
   'uniform mat4 u_ModelMatrix;\n' +
+  'uniform mat4 u_ViewMatrix;\n' +
+  'uniform mat4 u_ProjMatrix;\n' +
   'varying vec4 v_Color;\n' +
   'void main() {\n' +
-  '  gl_Position = u_ModelMatrix * a_Position;\n' +
+  '  gl_Position = u_ProjMatrix * u_ViewMatrix * u_ModelMatrix * a_Position;\n' +
   '  v_Color = a_Color;\n' +
   '}\n';
 
@@ -31,7 +33,9 @@ var isDrag=false;   // mouse-drag: true when user holds down mouse button
 var xMclik=0.0;     // last mouse button-down position (in CVV coords)
 var yMclik=0.0;   
 var xMdragTot=0.0;  // total (accumulated) mouse-drag amounts (in CVV coords).
-var yMdragTot=0.0;   
+var yMdragTot=0.0; 
+
+var floatsPerVertex = 6;  
 
 function main() {
   // Retrieve <canvas> element
@@ -70,7 +74,7 @@ function main() {
   window.addEventListener("keypress", myKeyPress, false);
 
   // Set clear color and enable hidden surface removal
-  gl.clearColor(0.0, 0.0, 0.0, 1.0);
+  gl.clearColor(0.25, 0.2, 0.25, 1.0);
   gl.enable(gl.DEPTH_TEST);
 
   // Get handle to graphics system's storage location of u_ModelMatrix
@@ -87,10 +91,30 @@ function main() {
   var currentAngle = 0.0;
 
 
+
+  var u_ViewMatrix = gl.getUniformLocation(gl.program, 'u_ViewMatrix');
+  var u_ProjMatrix = gl.getUniformLocation(gl.program, 'u_ProjMatrix');
+  if (!u_ViewMatrix || !u_ProjMatrix) { 
+    console.log('Failed to get u_ViewMatrix or u_ProjMatrix');
+    return;
+  }
+  var viewMatrix = new Matrix4();
+  viewMatrix.setLookAt(g_EyeY, g_EyeX, g_EyeZ,  // eye position,
+                        0, 0, 0,                // look-at point,
+                        0, 1, 0);               // 'up' vector.
+
+  // Pass the view projection matrix to our shaders:
+  gl.uniformMatrix4fv(u_ViewMatrix, false, viewMatrix.elements);
+  
+  var projMatrix = new Matrix4();
+  projMatrix.setPerspective(30, canvas.width/canvas.height, 1, 100);
+  gl.uniformMatrix4fv(u_ProjMatrix, false, projMatrix.elements);
+
+  //drawMyObject(gl, n, currentAngle, modelMatrix, u_ModelMatrix);
   // Start drawing: create 'tick' variable whose value is this function:
   var tick = function() {
     currentAngle = animate(currentAngle);  // Update the rotation angle
-    draw(gl, n, currentAngle, modelMatrix, u_ModelMatrix);   // Draw shapes
+    drawMyObject(gl, n, currentAngle, modelMatrix, u_ModelMatrix);   // Draw shapes
     requestAnimationFrame(tick, canvas);   
   };
   tick();             // start (and continue) animation: draw current image
@@ -106,7 +130,7 @@ function initVertexBuffers(gl)
   //  | |v7---|-|v4
   //  |/      |/
   //  v2------v3
-  var verticesColors = new Float32Array([
+  var objectverticesColors = new Float32Array([
     // Vertex coordinates and color
     //====Robot Arm======
      0.25,   0.50,   0.25,     1.0,  1.0,  1.0,  // v0 White
@@ -219,6 +243,28 @@ function initVertexBuffers(gl)
 
  ]);
 
+  makeGroundGrid();
+
+  mySiz = objectverticesColors.length + gndVerts.length;
+  console.log("The numebr of grid vertices is ", gndVerts.length);
+  console.log("The numebr of object vertices is ", objectverticesColors.length)
+
+  var nn = mySiz / floatsPerVertex;
+  console.log('nn is', nn, 'mySiz is', mySiz, 'floatsPerVertex is', floatsPerVertex);
+
+  // Copy all shapes into one big Float32 array:
+  var verticesColors = new Float32Array(mySiz);
+
+  // Copy them:  remember where to start for each shape:
+  objectStart = 0;              // we store the object first.
+  for(i=0,j=0; j< objectverticesColors.length; i++,j++) {
+    verticesColors[i] = objectverticesColors[j];
+    } 
+  gndStart = i;           // next we'll store the ground-plane;
+  for(j=0; j< gndVerts.length; i++, j++) {
+    verticesColors[i] = gndVerts[j];
+    }
+
  // Create a buffer object
   var vertexColorBuffer = gl.createBuffer();
   var indexBuffer = gl.createBuffer();
@@ -255,10 +301,13 @@ function initVertexBuffers(gl)
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
 
-  return indices.length;
+  return mySiz/floatsPerVertex
+  //return indices.length;
 }
 
-function draw(gl, n, currentAngle, modelMatrix, u_ModelMatrix) 
+var g_EyeX = 0.20, g_EyeY = 0.25, g_EyeZ = 4.25; 
+
+function drawMyObject(gl, n, currentAngle, modelMatrix, u_ModelMatrix) 
 {
   console.log(n);
   // Clear <canvas>  colors AND the depth buffer
@@ -410,8 +459,107 @@ function draw(gl, n, currentAngle, modelMatrix, u_ModelMatrix)
   gl.drawElements(gl.TRIANGLES, 72, gl.UNSIGNED_BYTE, 124);
 
 
+  
+
+  gl.drawArrays(gl.LINES,gndStart/floatsPerVertex, gndVerts.length/floatsPerVertex);
+
+
 
 }
+
+function makeGroundGrid() {
+//==============================================================================
+// Create a list of vertices that create a large grid of lines in the x,y plane
+// centered at x=y=z=0.  Draw this shape using the GL_LINES primitive.
+
+  var xcount = 100;     // # of lines to draw in x,y to make the grid.
+  var ycount = 100;   
+  var xymax = 50.0;     // grid size; extends to cover +/-xymax in x and y.
+  var xColr = new Float32Array([1.0, 1.0, 0.3]);  // bright yellow
+  var yColr = new Float32Array([0.5, 1.0, 0.5]);  // bright green.
+  
+  // Create an (global) array to hold this ground-plane's vertices:
+  gndVerts = new Float32Array(floatsPerVertex*2*(xcount+ycount));
+            // draw a grid made of xcount+ycount lines; 2 vertices per line.
+            
+  var xgap = xymax/(xcount-1);    // HALF-spacing between lines in x,y;
+  var ygap = xymax/(ycount-1);    // (why half? because v==(0line number/2))
+  
+  // First, step thru x values as we make vertical lines of constant-x:
+  for(v=0, j=0; v<2*xcount; v++, j+= floatsPerVertex) {
+    if(v%2==0) {  // put even-numbered vertices at (xnow, -xymax, 0)
+      gndVerts[j  ] = -xymax + (v  )*xgap;  // x
+      gndVerts[j+1] = -xymax;               // y
+      gndVerts[j+2] = 0.0;                  // z
+    }
+    else {        // put odd-numbered vertices at (xnow, +xymax, 0).
+      gndVerts[j  ] = -xymax + (v-1)*xgap;  // x
+      gndVerts[j+1] = xymax;                // y
+      gndVerts[j+2] = 0.0;                  // z
+    }
+    gndVerts[j+3] = xColr[0];     // red
+    gndVerts[j+4] = xColr[1];     // grn
+    gndVerts[j+5] = xColr[2];     // blu
+  }
+  // Second, step thru y values as wqe make horizontal lines of constant-y:
+  // (don't re-initialize j--we're adding more vertices to the array)
+  for(v=0; v<2*ycount; v++, j+= floatsPerVertex) {
+    if(v%2==0) {    // put even-numbered vertices at (-xymax, ynow, 0)
+      gndVerts[j  ] = -xymax;               // x
+      gndVerts[j+1] = -xymax + (v  )*ygap;  // y
+      gndVerts[j+2] = 0.0;                  // z
+    }
+    else {          // put odd-numbered vertices at (+xymax, ynow, 0).
+      gndVerts[j  ] = xymax;                // x
+      gndVerts[j+1] = -xymax + (v-1)*ygap;  // y
+      gndVerts[j+2] = 0.0;                  // z
+    }
+    gndVerts[j+3] = yColr[0];     // red
+    gndVerts[j+4] = yColr[1];     // grn
+    gndVerts[j+5] = yColr[2];     // blu
+  }
+}
+
+function drawMyScene(myGL, myu_ViewMatrix, myViewMatrix) {
+//===============================================================================
+// Called ONLY from within the 'draw()' function
+// Assumes already-correctly-set View matrix and Proj matrix; 
+// draws all items in 'world' coords.
+
+  // DON'T clear <canvas> or you'll WIPE OUT what you drew 
+  // in all previous viewports!
+  // myGL.clear(gl.COLOR_BUFFER_BIT);             
+  
+  // Draw the 'forest' in the current 'world' coord system:
+  // (where +y is 'up', as defined by our setLookAt() function call above...)
+  myGL.drawArrays(myGL.TRIANGLES,         // use this drawing primitive, and
+                forestStart/floatsPerVertex,  // start at this vertex number, and
+                forestVerts.length/floatsPerVertex);  // draw this many vertices.
+  
+ // Rotate to make a new set of 'world' drawing axes: 
+ // old one had "+y points upwards", but
+  myViewMatrix.rotate(-90.0, 1,0,0);  // new one has "+z points upwards",
+                                      // made by rotating -90 deg on +x-axis.
+                                      // Move those new drawing axes to the 
+                                      // bottom of the trees:
+  myViewMatrix.translate(0.0, 0.0, -0.6); 
+  myViewMatrix.scale(0.4, 0.4,0.4);   // shrink the drawing axes 
+                                      //for nicer-looking ground-plane, and
+  // Pass the modified view matrix to our shaders:
+  myGL.uniformMatrix4fv(myu_ViewMatrix, false, myViewMatrix.elements);
+  
+  // Now, using these drawing axes, draw our ground plane: 
+  myGL.drawArrays(myGL.LINES,             // use this drawing primitive, and
+                gndStart/floatsPerVertex, // start at this vertex number, and
+                gndVerts.length/floatsPerVertex);   // draw this many vertices
+
+}
+
+
+
+
+
+
 
 // Last time that this function was called:  (used for animation timing)
 var g_last = Date.now();
